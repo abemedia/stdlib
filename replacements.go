@@ -6,6 +6,7 @@ import (
 	"go/ast"
 	"go/printer"
 	"go/token"
+	"os"
 	"text/template"
 
 	"golang.org/x/tools/go/analysis"
@@ -19,6 +20,7 @@ var replacements = map[string]map[string]struct {
 }{
 	"github.com/samber/lo": {
 		"Chunk":           {"slices.Chunk", "v1.21", nil},
+		"Repeat":          {"slices.Repeat", "v1.21", chain(toSlice(0), reorderArgs(1, 0))},
 		"Drop":            {"", "v1.0", tmpl("{{index .Args 0}}[{{index .Args 1}}:]")},
 		"DropRight":       {"", "v1.0", tmpl("{{index .Args 0}}[:len({{index .Args 0}})-{{index .Args 1}}]")},
 		"Contains":        {"slices.Contains", "v1.21", nil},
@@ -41,6 +43,21 @@ var replacements = map[string]map[string]struct {
 }
 
 type rewriteFunc func(*analysis.Pass, *ast.CallExpr) ([]analysis.TextEdit, bool)
+
+// chain returns a rewrite function that applies all given rewrite functions in order.
+func chain(fn ...rewriteFunc) rewriteFunc {
+	return func(pass *analysis.Pass, call *ast.CallExpr) ([]analysis.TextEdit, bool) {
+		var allEdits []analysis.TextEdit
+		for _, f := range fn {
+			edits, ok := f(pass, call)
+			if !ok {
+				return nil, false
+			}
+			allEdits = append(allEdits, edits...)
+		}
+		return allEdits, true
+	}
+}
 
 // tmpl returns a rewrite function that replaces the entire call with the result of executing the template.
 func tmpl(templateStr string) func(pass *analysis.Pass, call *ast.CallExpr) ([]analysis.TextEdit, bool) {
@@ -105,6 +122,75 @@ func toVariadic(_ *analysis.Pass, call *ast.CallExpr) ([]analysis.TextEdit, bool
 		return []analysis.TextEdit{edit}, true
 	}
 	return nil, false
+}
+
+// reorderArgs returns a rewrite function that reorders the arguments of a function call according to the given order.
+func reorderArgs(order ...int) func(pass *analysis.Pass, call *ast.CallExpr) ([]analysis.TextEdit, bool) {
+	return func(pass *analysis.Pass, call *ast.CallExpr) ([]analysis.TextEdit, bool) {
+		// Check that there are at least as many arguments as the order slice.
+		if len(call.Args) < len(order) {
+			return nil, false
+		}
+
+		var edits []analysis.TextEdit
+
+		// For each position i in the order, obtain the original text for the argument at index order[i]
+		// and create an edit that replaces the argument text at position i.
+		for i, newIdx := range order {
+			if newIdx < 0 || newIdx >= len(call.Args) {
+				return nil, false
+			}
+			file := pass.Fset.File(call.Args[newIdx].Pos())
+			if file == nil {
+				return nil, false
+			}
+			data, err := os.ReadFile(file.Name())
+			if err != nil {
+				return nil, false
+			}
+			startOffset := file.Offset(call.Args[newIdx].Pos())
+			endOffset := file.Offset(call.Args[newIdx].End())
+			edits = append(edits, analysis.TextEdit{
+				Pos:     call.Args[i].Pos(),
+				End:     call.Args[i].End(),
+				NewText: data[startOffset:endOffset],
+			})
+		}
+		return edits, true
+	}
+}
+
+// toSlice converts the argument at the specified index to a slice.
+func toSlice(arg int) rewriteFunc {
+	return func(pass *analysis.Pass, call *ast.CallExpr) ([]analysis.TextEdit, bool) {
+		// Ensure there is an argument at the specified index.
+		if len(call.Args) <= arg {
+			return nil, false
+		}
+		expr := call.Args[arg]
+
+		// Retrieve the type of the argument.
+		tv, ok := pass.TypesInfo.Types[expr]
+		if !ok || tv.Type == nil {
+			return nil, false
+		}
+		argTypeStr := tv.Type.String()
+
+		// Get the original source text of the argument.
+		var buf bytes.Buffer
+		if err := printer.Fprint(&buf, pass.Fset, expr); err != nil {
+			return nil, false
+		}
+		originalExpr := buf.String()
+
+		// Replace the original argument with the new text.
+		edit := analysis.TextEdit{
+			Pos:     expr.Pos(),
+			End:     expr.End(),
+			NewText: fmt.Appendf(nil, "[]%s{%s}", argTypeStr, originalExpr),
+		}
+		return []analysis.TextEdit{edit}, true
+	}
 }
 
 // lessToCmp returns a rewrite function that converts a less function literal to a cmp function.

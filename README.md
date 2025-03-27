@@ -40,6 +40,23 @@ result := lo.Chunk(slice, size)
 result := slices.Chunk(slice, size)
 ```
 
+#### `Repeat`
+
+> :warning: `slices.Repeat` does not use the `Clone` function like `lo.Repeat` does but just creates
+> shallow copies.
+
+**Before:**
+
+```go
+result := lo.Repeat(5, a)
+```
+
+**After:**
+
+```go
+result := slices.Repeat([]myStruct{a}, 5)
+```
+
 #### `Drop`
 
 **Before:**
