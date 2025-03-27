@@ -1,0 +1,52 @@
+package slices
+
+import (
+	// want "The github.com/samber/lo package import is no longer necessary"
+
+	"cmp"
+	"maps"
+	"slices"
+)
+
+// Slices.
+func _(a []string, b string, c [][]string) {
+	slices.Chunk(a, 2)                           // want `lo.Chunk can be replaced with slices.Chunk`
+	a[2:]                                        // want `lo.Drop can be replaced with builtin`
+	a[:len(a)-2]                                 // want `lo.DropRight can be replaced with builtin`
+	slices.Contains(a, b)                        // want `lo.Contains can be replaced with slices.Contains`
+	slices.ContainsFunc(a, func(s string) bool { // want `lo.ContainsBy can be replaced with slices.ContainsFunc`
+		return s == b
+	})
+	slices.Index(a, b)                        // want `lo.IndexOf can be replaced with slices.Index`
+	slices.LastIndex(a, b)                    // want `lo.LastIndexOf can be replaced with slices.LastIndex`
+	slices.Min(a)                             // want `lo.Min can be replaced with slices.Min`
+	slices.MinFunc(a, func(x, y string) int { // want `lo.MinBy can be replaced with slices.MinFunc`
+		return cmp.Compare(len(x), len(y))
+	})
+	slices.MinFunc(a, func(x, y string) int { // want `lo.MinBy can be replaced with slices.MinFunc`
+		return cmp.Compare(y, x)
+	})
+	slices.Max(a)                             // want `lo.Max can be replaced with slices.Max`
+	slices.MaxFunc(a, func(x, y string) int { // want `lo.MaxBy can be replaced with slices.MaxFunc`
+		if b == "" {
+			return cmp.Compare(x, y)
+		}
+		return cmp.Compare(y, x)
+	})
+	slices.MaxFunc(a, func(x, y string) int { // want `lo.MaxBy can be replaced with slices.MaxFunc`
+		return cmp.Compare(x, y)
+	})
+	slices.IsSorted(a)  // want `lo.IsSorted can be replaced with slices.IsSorted`
+	slices.Concat(c...) // want `lo.Flatten can be replaced with slices.Concat`
+}
+
+// Maps.
+func _(a map[string]string, b string) {
+	maps.Keys(a)   // want `lo.Keys can be replaced with maps.Keys`
+	maps.Values(a) // want `lo.Values can be replaced with maps.Values`
+}
+
+// Helpers.
+func _(a, b string) {
+	cmp.Or(a, b) // want `lo.CoalesceOrEmpty can be replaced with cmp.Or`
+}

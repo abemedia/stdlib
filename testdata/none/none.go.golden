@@ -1,0 +1,9 @@
+package none
+
+import (
+	"expnone/lo"
+)
+
+func _(a, b string) {
+	lo.CoalesceOrEmpty(a, b)
+}
