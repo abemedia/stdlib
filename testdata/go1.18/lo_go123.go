@@ -1,4 +1,6 @@
-package slices
+//go:build go1.23
+
+package test
 
 import (
 	"github.com/samber/lo" // want "The github.com/samber/lo package import is no longer necessary"
@@ -14,7 +16,6 @@ func _(a []string, b string, c [][]string) {
 		return s == b
 	})
 	lo.IndexOf(a, b)                     // want `lo.IndexOf can be replaced with slices.Index`
-	lo.LastIndexOf(a, b)                 // want `lo.LastIndexOf can be replaced with slices.LastIndex`
 	lo.Min(a)                            // want `lo.Min can be replaced with slices.Min`
 	lo.MinBy(a, func(x, y string) bool { // want `lo.MinBy can be replaced with slices.MinFunc`
 		return len(x) < len(y)

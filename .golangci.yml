@@ -16,6 +16,7 @@ linters:
     - exhaustruct
     - mnd
     - nlreturn
+    - paralleltest
     - varnamelen
     - wrapcheck
     - wsl

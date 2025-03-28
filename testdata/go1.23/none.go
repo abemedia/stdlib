@@ -1,7 +1,7 @@
-package none
+package test
 
 import (
-	"none/lo"
+	"test/lo"
 )
 
 func _(a, b string) {

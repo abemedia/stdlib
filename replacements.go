@@ -18,25 +18,24 @@ var replacements = map[string]map[string]struct {
 	rewrite    rewriteFunc
 }{
 	"github.com/samber/lo": {
-		"Chunk":           {"slices.Chunk", "v1.21", nil},
-		"Drop":            {"", "v1.0", tmpl("{{index .Args 0}}[{{index .Args 1}}:]")},
-		"DropRight":       {"", "v1.0", tmpl("{{index .Args 0}}[:len({{index .Args 0}})-{{index .Args 1}}]")},
-		"Contains":        {"slices.Contains", "v1.21", nil},
-		"ContainsBy":      {"slices.ContainsFunc", "v1.21", nil},
-		"IndexOf":         {"slices.Index", "v1.21", nil},
-		"LastIndexOf":     {"slices.LastIndex", "v1.21", nil},
-		"Min":             {"slices.Min", "v1.21", nil},
-		"MinBy":           {"slices.MinFunc", "v1.21", lessToCmp(false)},
-		"Max":             {"slices.Max", "v1.21", nil},
-		"MaxBy":           {"slices.MaxFunc", "v1.21", lessToCmp(true)},
-		"IsSorted":        {"slices.IsSorted", "v1.21", nil},
-		"Flatten":         {"slices.Concat", "v1.21", toVariadic},
-		"Keys":            {"maps.Keys", "v1.21", nil},
-		"Values":          {"maps.Values", "v1.21", nil},
-		"CoalesceOrEmpty": {"cmp.Or", "v1.21", nil},
+		"Chunk":           {"slices.Chunk", "go1.23", nil},
+		"Drop":            {"", "go1", tmpl("{{index .Args 0}}[{{index .Args 1}}:]")},
+		"DropRight":       {"", "go1", tmpl("{{index .Args 0}}[:len({{index .Args 0}})-{{index .Args 1}}]")},
+		"Contains":        {"slices.Contains", "go1.21", nil},
+		"ContainsBy":      {"slices.ContainsFunc", "go1.21", nil},
+		"IndexOf":         {"slices.Index", "go1.21", nil},
+		"Min":             {"slices.Min", "go1.21", nil},
+		"MinBy":           {"slices.MinFunc", "go1.21", lessToCmp(false)},
+		"Max":             {"slices.Max", "go1.21", nil},
+		"MaxBy":           {"slices.MaxFunc", "go1.21", lessToCmp(true)},
+		"IsSorted":        {"slices.IsSorted", "go1.21", nil},
+		"Flatten":         {"slices.Concat", "go1.22", toVariadic},
+		"Keys":            {"maps.Keys", "go1.23", nil},
+		"Values":          {"maps.Values", "go1.23", nil},
+		"CoalesceOrEmpty": {"cmp.Or", "go1.22", nil},
 	},
 	"github.com/samber/lo/mutable": {
-		"Reverse": {"slices.Reverse", "v1.21", nil},
+		"Reverse": {"slices.Reverse", "go1.21", nil},
 	},
 }
 
@@ -97,11 +96,7 @@ func tmpl(templateStr string) func(pass *analysis.Pass, call *ast.CallExpr) ([]a
 func toVariadic(_ *analysis.Pass, call *ast.CallExpr) ([]analysis.TextEdit, bool) {
 	if len(call.Args) > 0 {
 		arg := call.Args[len(call.Args)-1]
-		edit := analysis.TextEdit{
-			Pos:     arg.End(),
-			End:     arg.End(),
-			NewText: []byte("..."),
-		}
+		edit := analysis.TextEdit{Pos: arg.End(), End: arg.End(), NewText: []byte("...")}
 		return []analysis.TextEdit{edit}, true
 	}
 	return nil, false
