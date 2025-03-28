@@ -12,13 +12,11 @@ import (
 )
 
 func TestAnalyzer(t *testing.T) {
-	t.Parallel()
-
 	tests := []struct {
 		dir string
 	}{
-		{dir: "lo"},
-		{dir: "none"},
+		{dir: "go1.18"},
+		{dir: "go1.23"},
 	}
 
 	tmp := t.TempDir()
@@ -29,8 +27,6 @@ func TestAnalyzer(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.dir, func(t *testing.T) {
-			t.Parallel()
-
 			wd, err := os.Getwd()
 			if err != nil {
 				t.Fatal(err)
@@ -45,7 +41,7 @@ func TestAnalyzer(t *testing.T) {
 
 			output, err := exec.Command("go", "mod", "vendor").CombinedOutput()
 			if err != nil {
-				t.Fatal(err, string(output))
+				t.Fatal(err, strings.TrimSpace(string(output)))
 			}
 
 			analysistest.RunWithSuggestedFixes(t, dir, stdlib.NewAnalyzer())

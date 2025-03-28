@@ -7,11 +7,12 @@ import (
 	"go/ast"
 	"go/token"
 	"go/types"
+	"go/version"
+	"path"
 	"slices"
 	"strconv"
 	"strings"
 
-	"golang.org/x/mod/semver"
 	"golang.org/x/tools/go/analysis"
 )
 
@@ -22,22 +23,16 @@ func NewAnalyzer() *analysis.Analyzer {
 		Name: "stdlib",
 		Doc:  "Detects uses of functions that can be replaced by standard library functions and suggests fixes.",
 		Run: func(pass *analysis.Pass) (any, error) {
-			goVersion := "v" + strings.TrimPrefix(pass.Pkg.GoVersion(), "go")
-			if goVersion == "v" {
-				goVersion += "1"
-			}
+			// references records, for each file and package, the number of candidate call expressions.
+			references := make(map[*ast.File]map[string]int)
 
-			// candidateCount records, for each file and package, the number of candidate call expressions.
-			candidateCount := make(map[*ast.File]map[string]int)
-
-			// First pass: look for call expressions that can be replaced.
+			// Replace expressions in each file.
 			for _, file := range pass.Files {
-				processFileCalls(pass, file, goVersion, candidateCount)
+				processFileCalls(pass, file, references)
 			}
 
-			// Second pass: for files that import a package from our configuration,
-			// if all usages were replaced, suggest removing the import.
-			processUnusedImports(pass, candidateCount)
+			// Remove unused imports.
+			processUnusedImports(pass, references)
 
 			return nil, nil
 		},
@@ -45,13 +40,10 @@ func NewAnalyzer() *analysis.Analyzer {
 }
 
 // processFileCalls inspects a file for call expressions that can be replaced.
-// It also records, per file and package, the number of candidate replacements.
-func processFileCalls(
-	pass *analysis.Pass,
-	file *ast.File,
-	modVersion string,
-	candidateCount map[*ast.File]map[string]int,
-) {
+// It also records, per file and package, the number of references to each package.
+func processFileCalls(pass *analysis.Pass, file *ast.File, references map[*ast.File]map[string]int) {
+	goVersion := cmp.Or(file.GoVersion, pass.Pkg.GoVersion(), "go1.9999")
+
 	ast.Inspect(file, func(n ast.Node) bool {
 		call, ok := n.(*ast.CallExpr)
 		if !ok {
@@ -71,39 +63,38 @@ func processFileCalls(
 		if !found {
 			return true
 		}
-		if semver.Compare(cmp.Or(file.GoVersion, modVersion), repl.minVersion) < 0 {
+		if version.Compare(goVersion, repl.minVersion) < 0 {
 			return true
 		}
 
-		// Record candidate replacement for this package.
-		if candidateCount[file] == nil {
-			candidateCount[file] = make(map[string]int)
-		}
-		candidateCount[file][pkgPath]++
-
-		// Replace both the package identifier and the function name.
-		xIdent, ok := sel.X.(*ast.Ident)
+		pkg, ok := sel.X.(*ast.Ident)
 		if !ok {
 			return true
 		}
 
-		fixes := addReplacementTextEdit(file, xIdent, sel.Sel, repl.stdlib)
+		// Record references to this package using the local package name.
+		if references[file] == nil {
+			references[file] = make(map[string]int)
+		}
+		references[file][pkg.Name]++
+
+		fixes := addReplacementTextEdit(file, pkg, sel.Sel, repl.stdlib)
 
 		// If the replacement has a rewrite function, apply its edits.
 		if repl.rewrite != nil {
-			extraEdits, ok := repl.rewrite(pass, call)
+			edits, ok := repl.rewrite(pass, call)
 			if ok {
-				fixes = append(fixes, extraEdits...)
+				fixes = append(fixes, edits...)
 			} else {
-				fixes = nil                     // Don't suggest a fix if the rewrite failed.
-				candidateCount[file][pkgPath]-- // Don't count this as a candidate.
+				fixes = nil                  // Don't suggest a fix if the rewrite failed.
+				references[file][pkg.Name]-- // Don't count this as a candidate.
 			}
 		}
 
 		d := analysis.Diagnostic{
 			Pos:     sel.Sel.Pos(),
 			End:     sel.Sel.End(),
-			Message: fmt.Sprintf("%s.%s can be replaced with %s", xIdent.Name, funcName, cmp.Or(repl.stdlib, "builtin")),
+			Message: fmt.Sprintf("%s.%s can be replaced with %s", path.Base(pkgPath), funcName, cmp.Or(repl.stdlib, "builtin")),
 		}
 		if len(fixes) > 0 {
 			d.SuggestedFixes = []analysis.SuggestedFix{{Message: "Replace with stdlib function", TextEdits: fixes}}
@@ -127,16 +118,8 @@ func addReplacementTextEdit(file *ast.File, pkg, fn *ast.Ident, stdlib string) [
 	}
 
 	fixes := []analysis.TextEdit{
-		{
-			Pos:     pkg.Pos(),
-			End:     pkg.End(),
-			NewText: []byte(stdlibPkg),
-		},
-		{
-			Pos:     fn.Pos(),
-			End:     fn.End(),
-			NewText: []byte(stdlibFunc),
-		},
+		{Pos: pkg.Pos(), End: pkg.End(), NewText: []byte(stdlibPkg)},
+		{Pos: fn.Pos(), End: fn.End(), NewText: []byte(stdlibFunc)},
 	}
 
 	quoted := strconv.Quote(stdlibPkg)
@@ -171,34 +154,42 @@ func addReplacementTextEdit(file *ast.File, pkg, fn *ast.Ident, stdlib string) [
 
 // processUnusedImports checks whether a file’s import for a replaced package is no longer used,
 // and if so, suggests removing it.
-func processUnusedImports(pass *analysis.Pass, candidateCount map[*ast.File]map[string]int) {
-	// For each file, count usage of package names.
+func processUnusedImports(pass *analysis.Pass, references map[*ast.File]map[string]int) {
+	// For each file, count usage of package names using the local alias.
 	for _, file := range pass.Files {
 		totalPkgUses := make(map[string]int)
 		for _, obj := range pass.TypesInfo.Uses {
 			if objPos := obj.Pos(); objPos >= file.Pos() && objPos <= file.End() {
 				if pkgName, ok := obj.(*types.PkgName); ok {
-					totalPkgUses[pkgName.Imported().Path()]++
+					totalPkgUses[pkgName.Name()]++
 				}
 			}
 		}
-		// Check for each package in our replacement configuration if the import is now unused.
-		for pkgPath := range replacements {
-			var importSpec *ast.ImportSpec
-			for _, imp := range file.Imports {
-				if imp.Path.Value == strconv.Quote(pkgPath) {
-					importSpec = imp
-					break
-				}
+
+		// Check each import spec in the file.
+		for _, importSpec := range file.Imports {
+			pkgPath, err := strconv.Unquote(importSpec.Path.Value)
+			if err != nil {
+				continue
 			}
-			if importSpec == nil {
-				continue // package not imported in this file
+			// Only consider packages that have a replacement configured.
+			if _, ok := replacements[pkgPath]; !ok {
+				continue
+			}
+			// Determine the local alias: if a name is provided, use it; otherwise,
+			// use the package's default (the base of the path).
+			var localAlias string
+			if importSpec.Name != nil {
+				localAlias = importSpec.Name.Name
+			} else {
+				localAlias = path.Base(pkgPath)
 			}
 
-			candidate := candidateCount[file][pkgPath]
+			candidateCount := references[file][localAlias]
 
-			// If all usages are candidates for replacement and there is at least one candidate, suggest removing the import.
-			if candidate > 0 && totalPkgUses[pkgPath] == candidate {
+			// If all usages for this alias are candidates for replacement and there
+			// is at least one candidate, suggest removing the import.
+			if candidateCount > 0 && totalPkgUses[localAlias] == candidateCount {
 				pass.Report(analysis.Diagnostic{
 					Pos:     importSpec.Pos(),
 					End:     importSpec.End(),
