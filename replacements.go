@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"go/ast"
+	"go/parser"
 	"go/printer"
 	"go/token"
 	"text/template"
@@ -25,14 +26,16 @@ var replacements = map[string]map[string]struct {
 		"ContainsBy":      {"slices.ContainsFunc", "go1.21", nil},
 		"IndexOf":         {"slices.Index", "go1.21", nil},
 		"Min":             {"slices.Min", "go1.21", nil},
-		"MinBy":           {"slices.MinFunc", "go1.21", lessToCmp(false)},
+		"MinBy":           {"slices.MinFunc", "go1.21", lessToCmp(1, false)},
 		"Max":             {"slices.Max", "go1.21", nil},
-		"MaxBy":           {"slices.MaxFunc", "go1.21", lessToCmp(true)},
+		"MaxBy":           {"slices.MaxFunc", "go1.21", lessToCmp(1, true)},
 		"IsSorted":        {"slices.IsSorted", "go1.21", nil},
+		"IsSortedByKey":   {"slices.IsSortedFunc", "go1.21", keyToCmp(1)},
 		"Flatten":         {"slices.Concat", "go1.22", toVariadic},
 		"Keys":            {"maps.Keys", "go1.23", nil},
 		"Values":          {"maps.Values", "go1.23", nil},
 		"CoalesceOrEmpty": {"cmp.Or", "go1.22", nil},
+		"RuneLength":      {"utf8.RuneCountInString", "go1", nil},
 	},
 	"github.com/samber/lo/mutable": {
 		"Reverse": {"slices.Reverse", "go1.21", nil},
@@ -53,10 +56,9 @@ func tmpl(templateStr string) func(pass *analysis.Pass, call *ast.CallExpr) ([]a
 		if !ok {
 			return nil, false
 		}
-		pkgStr := pkgIdent.Name
-		fnStr := sel.Sel.Name
+		pkg := pkgIdent.Name
+		fn := sel.Sel.Name
 
-		// Gather arguments as strings using printer.Fprint.
 		var args []string
 		for _, arg := range call.Args {
 			var buf bytes.Buffer
@@ -71,7 +73,7 @@ func tmpl(templateStr string) func(pass *analysis.Pass, call *ast.CallExpr) ([]a
 			Pkg  string
 			Fn   string
 			Args []string
-		}{pkgStr, fnStr, args}
+		}{pkg, fn, args}
 
 		tmpl, err := template.New("rewrite").Parse(templateStr)
 		if err != nil {
@@ -94,20 +96,17 @@ func tmpl(templateStr string) func(pass *analysis.Pass, call *ast.CallExpr) ([]a
 
 // toVariadic converts the last argument of a function call to a variadic argument.
 func toVariadic(_ *analysis.Pass, call *ast.CallExpr) ([]analysis.TextEdit, bool) {
-	if len(call.Args) > 0 {
-		arg := call.Args[len(call.Args)-1]
-		edit := analysis.TextEdit{Pos: arg.End(), End: arg.End(), NewText: []byte("...")}
-		return []analysis.TextEdit{edit}, true
-	}
-	return nil, false
+	arg := call.Args[len(call.Args)-1]
+	edit := analysis.TextEdit{Pos: arg.End(), End: arg.End(), NewText: []byte("...")}
+	return []analysis.TextEdit{edit}, true
 }
 
 // lessToCmp returns a rewrite function that converts a less function literal to a cmp function.
 // If reverse is true, the comparison is reversed.
-func lessToCmp(reverse bool) rewriteFunc { //nolint:gocognit
+func lessToCmp(arg int, reverse bool) rewriteFunc {
 	return func(pass *analysis.Pass, call *ast.CallExpr) ([]analysis.TextEdit, bool) {
-		// Ensure the last argument is a function literal.
-		funcLit, ok := call.Args[len(call.Args)-1].(*ast.FuncLit)
+		// Ensure the argument is a function literal.
+		funcLit, ok := call.Args[arg].(*ast.FuncLit)
 		if !ok {
 			return nil, false
 		}
@@ -115,19 +114,20 @@ func lessToCmp(reverse bool) rewriteFunc { //nolint:gocognit
 		var edits []analysis.TextEdit
 
 		// Change the function literal’s result type from bool to int.
-		if funcLit.Type.Results != nil && len(funcLit.Type.Results.List) > 0 {
-			edits = append(edits, analysis.TextEdit{
-				Pos:     funcLit.Type.Results.List[0].Type.Pos(),
-				End:     funcLit.Type.Results.List[0].Type.End(),
-				NewText: []byte("int"),
-			})
-		}
+		edits = append(edits, analysis.TextEdit{
+			Pos:     funcLit.Type.Results.List[0].Type.Pos(),
+			End:     funcLit.Type.Results.List[0].Type.End(),
+			NewText: []byte("int"),
+		})
 
 		// Process all return statements in the function literal.
 		for n := range ast.Preorder(funcLit.Body) {
 			retStmt, ok := n.(*ast.ReturnStmt)
-			if !ok || len(retStmt.Results) != 1 {
+			if !ok {
 				continue
+			}
+			if len(retStmt.Results) != 1 {
+				return nil, false
 			}
 			binExpr, ok := retStmt.Results[0].(*ast.BinaryExpr)
 			if !ok {
@@ -161,6 +161,88 @@ func lessToCmp(reverse bool) rewriteFunc { //nolint:gocognit
 				Pos:     retStmt.Results[0].Pos(),
 				End:     retStmt.Results[0].End(),
 				NewText: fmt.Appendf(nil, "cmp.Compare(%s, %s)", left, right),
+			})
+		}
+
+		return edits, true
+	}
+}
+
+func keyToCmp(arg int) rewriteFunc { //nolint:funlen,gocognit
+	return func(pass *analysis.Pass, call *ast.CallExpr) ([]analysis.TextEdit, bool) {
+		// Ensure the argument is a function literal.
+		funcLit, ok := call.Args[arg].(*ast.FuncLit)
+		if !ok {
+			return nil, false
+		}
+
+		var edits []analysis.TextEdit
+
+		// Replace the current return type with "int".
+		edits = append(edits, analysis.TextEdit{
+			Pos:     funcLit.Type.Results.List[0].Type.Pos(),
+			End:     funcLit.Type.Results.List[0].Type.End(),
+			NewText: []byte("int"),
+		})
+
+		param := funcLit.Type.Params.List[0]
+		if len(param.Names) != 1 {
+			return nil, false
+		}
+		paramName := param.Names[0].Name
+
+		// Construct the new parameter list: keep the original parameter and add ", next <type>".
+		paramType := &bytes.Buffer{}
+		if err := printer.Fprint(paramType, pass.Fset, param.Type); err != nil {
+			return nil, false
+		}
+		edits = append(edits, analysis.TextEdit{
+			Pos:     funcLit.Type.Params.Opening + 1,
+			End:     funcLit.Type.Params.Closing,
+			NewText: fmt.Appendf(nil, "%s, next %s", paramName, paramType),
+		})
+
+		// Process all return statements in the function literal.
+		for n := range ast.Preorder(funcLit.Body) {
+			retStmt, ok := n.(*ast.ReturnStmt)
+			if !ok {
+				continue
+			}
+			if len(retStmt.Results) != 1 {
+				return nil, false
+			}
+
+			// Copy the expression and replace the original parameter with "next".
+			resultBuf := &bytes.Buffer{}
+			if err := printer.Fprint(resultBuf, pass.Fset, retStmt.Results[0]); err != nil {
+				return nil, false
+			}
+			result := resultBuf.String()
+			exprNext, err := parser.ParseExpr(result)
+			if err != nil {
+				return nil, false
+			}
+			var hasParam bool
+			ast.Inspect(exprNext, func(n ast.Node) bool {
+				if ident, ok := n.(*ast.Ident); ok && ident.Name == paramName {
+					ident.Name = "next"
+					hasParam = true
+				}
+				return true
+			})
+			if !hasParam {
+				return nil, false
+			}
+
+			next := &bytes.Buffer{}
+			if err := printer.Fprint(next, pass.Fset, exprNext); err != nil {
+				return nil, false
+			}
+
+			edits = append(edits, analysis.TextEdit{
+				Pos:     retStmt.Results[0].Pos(),
+				End:     retStmt.Results[0].End(),
+				NewText: fmt.Appendf(nil, "cmp.Compare(%s, %s)", result, next),
 			})
 		}
 
