@@ -126,20 +126,6 @@ idx := lo.IndexOf(slice, target)
 idx := slices.Index(slice, target)
 ```
 
-#### `LastIndexOf`
-
-**Before:**
-
-```go
-idx := lo.LastIndexOf(slice, target)
-```
-
-**After:**
-
-```go
-idx := slices.LastIndex(slice, target)
-```
-
 #### `Min`
 
 **Before:**
@@ -222,6 +208,24 @@ if slices.IsSorted(slice) {
 }
 ```
 
+#### `IsSortedByKey`
+
+**Before:**
+
+```go
+sorted := lo.IsSortedByKey(slice, func(a string) string {
+	return a
+})
+```
+
+**After:**
+
+```go
+sorted := slices.IsSortedFunc(slice, func(a, next string) int {
+	return cmp.Compare(a, next)
+})
+```
+
 #### `Flatten`
 
 **Before:**
@@ -276,6 +280,20 @@ result := lo.CoalesceOrEmpty(s1, s2, s3)
 
 ```go
 result := cmp.Or(s1, s2, s3)
+```
+
+#### `RuneLength`
+
+**Before:**
+
+```go
+n := lo.RuneLength(s)
+```
+
+**After:**
+
+```go
+n := utf8.RuneCountInString(s)
 ```
 
 </details>

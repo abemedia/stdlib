@@ -6,6 +6,7 @@ import (
 	"cmp"
 	"maps"
 	"slices"
+	"utf8"
 )
 
 // Slices.
@@ -35,7 +36,16 @@ func _(a []string, b string, c [][]string) {
 	slices.MaxFunc(a, func(x, y string) int { // want `lo.MaxBy can be replaced with slices.MaxFunc`
 		return cmp.Compare(x, y)
 	})
-	slices.IsSorted(a)  // want `lo.IsSorted can be replaced with slices.IsSorted`
+	slices.IsSorted(a)                                // want `lo.IsSorted can be replaced with slices.IsSorted`
+	slices.IsSortedFunc(a, func(x, next string) int { // want `lo.IsSortedByKey can be replaced with slices.IsSortedFunc`
+		return cmp.Compare(x, next)
+	})
+	slices.IsSortedFunc(a, func(x, next string) int { // want `lo.IsSortedByKey can be replaced with slices.IsSortedFunc`
+		if b == "" {
+			return cmp.Compare(len(x)%2, len(next)%2)
+		}
+		return cmp.Compare(len(x), len(next))
+	})
 	slices.Concat(c...) // want `lo.Flatten can be replaced with slices.Concat`
 }
 
@@ -43,6 +53,11 @@ func _(a []string, b string, c [][]string) {
 func _(a map[string]string, b string) {
 	maps.Keys(a)   // want `lo.Keys can be replaced with maps.Keys`
 	maps.Values(a) // want `lo.Values can be replaced with maps.Values`
+}
+
+// Strings.
+func _(a string) {
+	utf8.RuneCountInString(a) // want `lo.RuneLength can be replaced with utf8.RuneCountInString`
 }
 
 // Helpers.

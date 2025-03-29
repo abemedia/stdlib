@@ -31,14 +31,28 @@ func _(a []string, b string, c [][]string) {
 	lo.MaxBy(a, func(x, y string) bool { // want `lo.MaxBy can be replaced with slices.MaxFunc`
 		return x > y
 	})
-	lo.IsSorted(a) // want `lo.IsSorted can be replaced with slices.IsSorted`
-	lo.Flatten(c)  // want `lo.Flatten can be replaced with slices.Concat`
+	lo.IsSorted(a)                              // want `lo.IsSorted can be replaced with slices.IsSorted`
+	lo.IsSortedByKey(a, func(x string) string { // want `lo.IsSortedByKey can be replaced with slices.IsSortedFunc`
+		return x
+	})
+	lo.IsSortedByKey(a, func(x string) int { // want `lo.IsSortedByKey can be replaced with slices.IsSortedFunc`
+		if b == "" {
+			return len(x) % 2
+		}
+		return len(x)
+	})
+	lo.Flatten(c) // want `lo.Flatten can be replaced with slices.Concat`
 }
 
 // Maps.
 func _(a map[string]string, b string) {
 	lo.Keys(a)   // want `lo.Keys can be replaced with maps.Keys`
 	lo.Values(a) // want `lo.Values can be replaced with maps.Values`
+}
+
+// Strings.
+func _(a string) {
+	lo.RuneLength(a) // want `lo.RuneLength can be replaced with utf8.RuneCountInString`
 }
 
 // Helpers.
