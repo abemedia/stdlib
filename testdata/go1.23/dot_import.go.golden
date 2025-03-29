@@ -1,0 +1,11 @@
+package test
+
+import (
+	// want "The github.com/samber/lo package import is no longer necessary"
+
+	"slices"
+)
+
+func _(a []string) {
+	slices.Min(a) // want `lo.Min can be replaced with slices.Min`
+}
