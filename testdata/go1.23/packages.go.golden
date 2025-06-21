@@ -1,0 +1,19 @@
+package test
+
+import (
+	"context"      // want "Package \"golang.org/x/net/context\" can be replaced with \"context\""
+	"log/slog"     // want "Package \"golang.org/x/exp/slog\" can be replaced with \"log/slog\""
+	"maps"         // want "Package \"golang.org/x/exp/maps\" can be replaced with \"maps\""
+	"math/rand/v2" // want "Package \"golang.org/x/exp/rand\" can be replaced with \"math/rand/v2\""
+	"slices"       // want "Package \"golang.org/x/exp/slices\" can be replaced with \"slices\""
+	"sync"         // want "Package \"golang.org/x/sync/syncmap\" can be replaced with \"sync\""
+)
+
+func _(a map[string]int, b []string) {
+	rand.New(rand.NewSource(1))
+	maps.Keys(a)
+	slices.Clone(b)
+	slog.Error("test")
+	context.Background()
+	_ = sync.Map{}
+}
