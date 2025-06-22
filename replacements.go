@@ -13,7 +13,21 @@ import (
 )
 
 //nolint:gochecknoglobals
-var replacements = map[string]map[string]struct {
+var imports = map[string]struct {
+	stdlib     string
+	minVersion string
+	pkgName    string
+}{
+	"golang.org/x/exp/maps":     {"maps", "go1.21", ""},
+	"golang.org/x/exp/rand":     {"math/rand/v2", "go1.22", "rand"},
+	"golang.org/x/exp/slices":   {"slices", "go1.21", ""},
+	"golang.org/x/exp/slog":     {"log/slog", "go1.21", ""},
+	"golang.org/x/net/context":  {"context", "go1.7", ""},
+	"golang.org/x/sync/syncmap": {"sync", "go1.7", ""},
+}
+
+//nolint:gochecknoglobals
+var calls = map[string]map[string]struct {
 	stdlib     string
 	minVersion string
 	rewrite    rewriteFunc

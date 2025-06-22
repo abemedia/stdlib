@@ -21,6 +21,24 @@ stdlib ./...
 
 ## Replacements
 
+See below for all the replacements of packages, functions and types. They will only be replaced if
+the Go version of the file supports the new package.
+
+### Packages
+
+Replaces the imports of packages from `golang.org/x` which now exist in the stdlib.
+
+| Before                      | After          |
+| --------------------------- | -------------- |
+| `golang.org/x/exp/maps`     | `maps`         |
+| `golang.org/x/exp/rand`     | `math/rand/v2` |
+| `golang.org/x/exp/slices`   | `slices`       |
+| `golang.org/x/exp/slog`     | `log/slog`     |
+| `golang.org/x/net/context`  | `context`      |
+| `golang.org/x/sync/syncmap` | `sync`         |
+
+### Functions
+
 Expand the sections below to see the supported replacements for each package.
 
 <details>
@@ -214,7 +232,7 @@ if slices.IsSorted(slice) {
 
 ```go
 sorted := lo.IsSortedByKey(slice, func(a string) string {
-	return a
+    return a
 })
 ```
 
@@ -222,7 +240,7 @@ sorted := lo.IsSortedByKey(slice, func(a string) string {
 
 ```go
 sorted := slices.IsSortedFunc(slice, func(a, next string) int {
-	return cmp.Compare(a, next)
+    return cmp.Compare(a, next)
 })
 ```
 

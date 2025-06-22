@@ -26,7 +26,12 @@ func NewAnalyzer() *analysis.Analyzer {
 			// references records, for each file and package, the number of candidate call expressions.
 			references := make(map[*ast.File]map[string]int)
 
-			// Replace expressions in each file.
+			// Process package import replacements first.
+			for _, file := range pass.Files {
+				processFileImports(pass, file)
+			}
+
+			// Replace call expressions in each file.
 			for _, file := range pass.Files {
 				processFileCalls(pass, file, references)
 			}
@@ -36,6 +41,58 @@ func NewAnalyzer() *analysis.Analyzer {
 
 			return nil, nil
 		},
+	}
+}
+
+// processFileImports inspects a file for package imports that can be replaced.
+func processFileImports(pass *analysis.Pass, file *ast.File) {
+	goVersion := cmp.Or(file.GoVersion, pass.Pkg.GoVersion(), "go1.9999")
+
+	for _, importSpec := range file.Imports {
+		pkgPath, err := strconv.Unquote(importSpec.Path.Value)
+		if err != nil {
+			continue
+		}
+
+		pkgRepl, ok := imports[pkgPath]
+		if !ok || version.Compare(goVersion, pkgRepl.minVersion) < 0 {
+			continue
+		}
+
+		pkgName := pass.TypesInfo.PkgNameOf(importSpec)
+		oldAlias := pkgName.String()
+
+		// Determine the alias to be used for the new package.
+		// If an explicit alias was used, we keep it. Otherwise, we use the new default.
+		var newAlias string
+		if importSpec.Name != nil {
+			newAlias = oldAlias
+		} else {
+			newAlias = cmp.Or(pkgRepl.pkgName, path.Base(pkgRepl.stdlib))
+		}
+
+		// Create TextEdit to replace the import path.
+		fixes := []analysis.TextEdit{
+			{Pos: importSpec.Path.Pos(), End: importSpec.Path.End(), NewText: []byte(strconv.Quote(pkgRepl.stdlib))},
+		}
+
+		// Add TextEdits for renaming the alias if it changes.
+		if oldAlias != newAlias {
+			for ident, obj := range pass.TypesInfo.Uses {
+				if obj == pkgName { // Check if the identifier refers to this specific PkgName object
+					fixes = append(fixes, analysis.TextEdit{Pos: ident.Pos(), End: ident.End(), NewText: []byte(newAlias)})
+				}
+			}
+		}
+
+		pass.Report(analysis.Diagnostic{
+			Pos:     importSpec.Pos(),
+			End:     importSpec.End(),
+			Message: fmt.Sprintf("Package %q can be replaced with %q", pkgPath, pkgRepl.stdlib),
+			SuggestedFixes: []analysis.SuggestedFix{
+				{Message: "Replace package import and update references", TextEdits: fixes},
+			},
+		})
 	}
 }
 
@@ -59,8 +116,8 @@ func processFileCalls(pass *analysis.Pass, file *ast.File, references map[*ast.F
 		}
 		pkgPath := funcObj.Pkg().Path()
 		funcName := sel.Sel.Name
-		repl, found := replacements[pkgPath][funcName]
-		if !found {
+		repl, ok := calls[pkgPath][funcName]
+		if !ok {
 			return true
 		}
 		if version.Compare(goVersion, repl.minVersion) < 0 {
@@ -173,7 +230,7 @@ func processUnusedImports(pass *analysis.Pass, references map[*ast.File]map[stri
 				continue
 			}
 			// Only consider packages that have a replacement configured.
-			if _, ok := replacements[pkgPath]; !ok {
+			if _, ok := calls[pkgPath]; !ok {
 				continue
 			}
 			// Determine the local alias: if a name is provided, use it; otherwise,
