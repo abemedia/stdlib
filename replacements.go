@@ -1,3 +1,4 @@
+//nolint:gochecknoglobals
 package stdlib
 
 import (
@@ -12,7 +13,6 @@ import (
 	"golang.org/x/tools/go/analysis"
 )
 
-//nolint:gochecknoglobals
 var imports = map[string]struct {
 	stdlib     string
 	minVersion string
@@ -26,8 +26,7 @@ var imports = map[string]struct {
 	"golang.org/x/sync/syncmap": {"sync", "go1.7", ""},
 }
 
-//nolint:gochecknoglobals
-var calls = map[string]map[string]struct {
+var symbols = map[string]map[string]struct {
 	stdlib     string
 	minVersion string
 	rewrite    rewriteFunc
@@ -53,6 +52,9 @@ var calls = map[string]map[string]struct {
 	},
 	"github.com/samber/lo/mutable": {
 		"Reverse": {"slices.Reverse", "go1.21", nil},
+	},
+	"golang.org/x/exp/constraints": {
+		"Ordered": {"cmp.Ordered", "go1.21", nil},
 	},
 }
 

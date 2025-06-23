@@ -35,4 +35,5 @@ func _(a []string, b string, c [][]string) {
 	lo.IsSortedByKey(a, func(x string) string { // want `lo.IsSortedByKey can be replaced with slices.IsSortedFunc`
 		return b
 	})
+	_ = lo.Chunk[string, []string] // want `lo.Chunk can be replaced with slices.Chunk`
 }
